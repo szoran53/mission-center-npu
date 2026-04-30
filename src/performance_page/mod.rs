@@ -3115,6 +3115,7 @@ impl PerformancePage {
                     show_network && settings.boolean(group.settings_key())
                 }
                 DeviceType::Gpu => show_gpus,
+                DeviceType::Npu => settings.boolean("performance-show-npus"),
                 DeviceType::Fan => show_fans,
                 DeviceType::Battery => show_batteries,
                 DeviceType::Cpu | DeviceType::Memory | DeviceType::Unspecified => true,
