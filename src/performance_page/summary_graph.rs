@@ -75,6 +75,7 @@ pub enum DeviceType {
     Gpu,
     Fan,
     Battery,
+    Npu,
     Unspecified,
 }
 

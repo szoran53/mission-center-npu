@@ -37,6 +37,7 @@ use magpie_types::battery::Battery;
 use magpie_types::fan::Fan;
 use magpie_types::gpus::Gpu;
 use magpie_types::network::{Connection, ConnectionKind, ConnectionState};
+use magpie_types::npu::Npu;
 
 use crate::i18n::*;
 use crate::magpie_client::DiskKind;
@@ -59,6 +60,7 @@ mod gpu;
 mod gpu_details;
 mod memory;
 mod network;
+mod npu;
 mod summary_graph;
 mod widgets;
 
@@ -71,6 +73,7 @@ type NetworkPage = network::PerformancePageNetwork;
 type GpuPage = gpu::PerformancePageGpu;
 type GpuDetails = gpu_details::GpuDetails;
 type FanPage = fan::PerformancePageFan;
+type NpuPage = npu::PerformancePageNpu;
 
 trait PageExt {
     fn infobar_collapsed(&self);
@@ -96,6 +99,8 @@ mod imp {
     const GPU_BASE_COLOR: [u8; 3] = [0xf6, 0x61, 0x51];
     // GNOME color palette: Green 2
     const BATTERY_BASE_COLOR: [u8; 3] = [0x57, 0xe3, 0x89];
+    // GNOME color palette: Green 4
+    const NPU_BASE_COLOR: [u8; 3] = [0x33, 0xd1, 0x7a];
 
     enum Pages {
         Cpu((SummaryGraph, CpuPage)),
@@ -105,6 +110,7 @@ mod imp {
         Gpu(HashMap<String, (SummaryGraph, GpuPage)>),
         Fan(HashMap<String, (SummaryGraph, FanPage)>),
         Battery(HashMap<String, (SummaryGraph, BatteryPage)>),
+        Npu(Option<(SummaryGraph, NpuPage)>),
     }
 
     #[derive(Properties)]
@@ -399,6 +405,7 @@ mod imp {
             let show_gpus = settings.boolean("performance-show-gpus");
             let show_fans = settings.boolean("performance-show-fans");
             let show_batteries = settings.boolean("performance-show-batteries");
+            let show_npus = settings.boolean("performance-show-npus");
 
             let raw_overrides = settings.string("performance-sidebar-device-overrides");
             let overrides = parse_device_overrides(&raw_overrides);
@@ -414,6 +421,7 @@ mod imp {
                     DeviceType::Gpu => show_gpus,
                     DeviceType::Fan => show_fans,
                     DeviceType::Battery => show_batteries,
+                    DeviceType::Npu => show_npus,
                     DeviceType::Cpu | DeviceType::Memory | DeviceType::Unspecified => true,
                 };
                 let resolved = resolve_device_visibility(
@@ -908,6 +916,50 @@ mod imp {
             actions.add_action(&action);
             view_actions.insert("battery".to_string(), action);
 
+            let action =
+                gio::SimpleAction::new_stateful("npu", None, &glib::Variant::from(false));
+            action.connect_activate({
+                let this = this.downgrade();
+                move |action, _| {
+                    let this = match this.upgrade() {
+                        Some(this) => this,
+                        None => return,
+                    };
+                    let this = this.imp();
+
+                    let pages = this.pages.take();
+                    for page in &pages {
+                        let npu_entry = match page {
+                            Pages::Npu(entry) => entry,
+                            _ => continue,
+                        };
+
+                        let npu_entry = match npu_entry.as_ref() {
+                            Some(entry) => entry,
+                            None => continue,
+                        };
+
+                        let row = npu_entry.0.parent();
+                        if row.is_none() {
+                            continue;
+                        }
+                        let row = row.unwrap();
+
+                        this.sidebar()
+                            .select_row(row.downcast_ref::<gtk::ListBoxRow>());
+
+                        let prev_action = this.current_view_action.replace(action.clone());
+                        prev_action.set_state(&glib::Variant::from(false));
+                        action.set_state(&glib::Variant::from(true));
+
+                        break;
+                    }
+                    this.pages.set(pages);
+                }
+            });
+            actions.add_action(&action);
+            view_actions.insert("npu".to_string(), action);
+
             self.context_menu_view_actions.set(view_actions);
 
             actions
@@ -952,6 +1004,7 @@ mod imp {
                     DeviceType::Gpu => settings.boolean("performance-show-gpus"),
                     DeviceType::Fan => settings.boolean("performance-show-fans"),
                     DeviceType::Battery => settings.boolean("performance-show-batteries"),
+                    DeviceType::Npu => settings.boolean("performance-show-npus"),
                     DeviceType::Cpu | DeviceType::Memory | DeviceType::Unspecified => true,
                 };
                 let raw_overrides = settings.string("performance-sidebar-device-overrides");
@@ -1691,6 +1744,85 @@ mod imp {
             pages.push(Pages::Battery(batteries));
         }
 
+        fn set_up_npu_page(
+            &self,
+            pages: &mut Vec<Pages>,
+            readings: &crate::magpie_client::Readings,
+        ) {
+            if let Some(npu) = readings.npu.as_ref() {
+                let (_, page_tuple) = self.create_npu_page(npu, None);
+                pages.push(Pages::Npu(Some(page_tuple)));
+            } else {
+                pages.push(Pages::Npu(None));
+            }
+        }
+
+        fn npu_page_name() -> String {
+            "npu-0".to_string()
+        }
+
+        fn create_npu_page(
+            &self,
+            npu: &Npu,
+            pos_hint: Option<i32>,
+        ) -> (String, (SummaryGraph, NpuPage)) {
+            let page_name = Self::npu_page_name();
+
+            let summary = SummaryGraph::new(DeviceType::Npu);
+            summary.set_widget_name(&page_name);
+            summary.set_heading(i18n("NPU"));
+
+            let device_id = npu
+                .info
+                .as_ref()
+                .and_then(|i| i.device_id.as_ref())
+                .map(String::as_str)
+                .unwrap_or("");
+            summary.set_info1(device_id);
+
+            let settings = settings!();
+            let sumset = DatasetGroup::new();
+            summary.graph_widget().add_dataset(sumset);
+            summary.graph_widget().connect_to_settings(&settings);
+
+            summary.set_base_color(gdk::RGBA::new(
+                NPU_BASE_COLOR[0] as f32 / 255.,
+                NPU_BASE_COLOR[1] as f32 / 255.,
+                NPU_BASE_COLOR[2] as f32 / 255.,
+                1.,
+            ));
+
+            let page = NpuPage::new(&page_name);
+            page.set_base_color(gdk::RGBA::new(
+                NPU_BASE_COLOR[0] as f32 / 255.,
+                NPU_BASE_COLOR[1] as f32 / 255.,
+                NPU_BASE_COLOR[2] as f32 / 255.,
+                1.,
+            ));
+            page.set_static_information(npu);
+
+            self.configure_page(&page);
+            self.page_stack.add_named(&page, Some(&page_name));
+            self.add_to_sidebar(&summary, pos_hint);
+
+            let mut actions = self.context_menu_view_actions.take();
+            match actions.get("npu") {
+                None => {
+                    g_critical!(
+                        "MissionCenter::PerformancePage",
+                        "Failed to wire up NPU action for {}, logic bug?",
+                        &page_name
+                    );
+                }
+                Some(action) => {
+                    actions.insert(page_name.clone(), action.clone());
+                }
+            }
+            self.context_menu_view_actions.set(actions);
+
+            (page_name, (summary, page))
+        }
+
         fn battery_page_name(battery_info: &Battery) -> String {
             format!(
                 "battery-{}-{}",
@@ -1857,6 +1989,7 @@ mod imp {
             let show_gpus = settings.boolean("performance-show-gpus");
             let show_fans = settings.boolean("performance-show-fans");
             let show_batteries = settings.boolean("performance-show-batteries");
+            let show_npus = settings.boolean("performance-show-npus");
 
             let raw_overrides = settings.string("performance-sidebar-device-overrides");
             let overrides = parse_device_overrides(&raw_overrides);
@@ -1870,6 +2003,7 @@ mod imp {
                     DeviceType::Gpu => show_gpus,
                     DeviceType::Fan => show_fans,
                     DeviceType::Battery => show_batteries,
+                    DeviceType::Npu => show_npus,
                     DeviceType::Cpu | DeviceType::Memory | DeviceType::Unspecified => continue,
                 };
 
@@ -1900,6 +2034,7 @@ mod imp {
             this.set_up_gpu_pages(&mut pages, &readings);
             this.set_up_fan_pages(&mut pages, &readings);
             this.set_up_battery_pages(&mut pages, &readings);
+            this.set_up_npu_page(&mut pages, &readings);
             this.pages.set(pages);
 
             this.default_sort_sidebar_entries();
@@ -1943,6 +2078,7 @@ mod imp {
             let show_gpus = settings.boolean("performance-show-gpus");
             let show_fans = settings.boolean("performance-show-fans");
             let show_batteries = settings.boolean("performance-show-batteries");
+            let show_npus = settings.boolean("performance-show-npus");
 
             let sidebar_order = settings.string("performance-sidebar-order");
 
@@ -1972,6 +2108,7 @@ mod imp {
                     DeviceType::Gpu => show_gpus,
                     DeviceType::Fan => show_fans,
                     DeviceType::Battery => show_batteries,
+                    DeviceType::Npu => show_npus,
                     DeviceType::Cpu | DeviceType::Memory | DeviceType::Unspecified => true,
                 };
                 let visible =
@@ -2208,6 +2345,7 @@ mod imp {
                         );
                         pages_to_destroy.clear();
                     }
+                    Pages::Npu(_) => {} // 0 or 1 NPU — no dynamic add/remove needed
                 }
             }
 
@@ -2640,6 +2778,27 @@ mod imp {
                             pages.insert(page_name, page);
                         }
                     }
+                    Pages::Npu(npu_entry) => {
+                        if let Some((summary, page)) = npu_entry.as_ref() {
+                            if let Some(npu) = readings.npu.as_ref() {
+                                let irq_rate = npu
+                                    .dynamic
+                                    .as_ref()
+                                    .and_then(|d| d.irq_rate_hz)
+                                    .unwrap_or(0.0);
+                                summary
+                                    .graph_widget()
+                                    .add_data_point(vec![vec![irq_rate as f32]]);
+                                summary.set_info2(format!("{:.1} IRQ/s", irq_rate));
+                                result &= page.update_readings(npu);
+                            }
+                        } else if let Some(npu) = readings.npu.as_ref() {
+                            // NPU appeared after startup — create the page now
+                            let (_, page_tuple) =
+                                this.imp().create_npu_page(npu, None);
+                            *npu_entry = Some(page_tuple);
+                        }
+                    }
                 }
             }
 
@@ -2703,6 +2862,13 @@ mod imp {
                         for (summary, page) in pages.values() {
                             let graph_widget = summary.graph_widget();
 
+                            result &= graph_widget.update_animation(new_ticks);
+                            result &= page.update_animations(new_ticks);
+                        }
+                    }
+                    Pages::Npu(npu_entry) => {
+                        if let Some((summary, page)) = npu_entry.as_ref() {
+                            let graph_widget = summary.graph_widget();
                             result &= graph_widget.update_animation(new_ticks);
                             result &= page.update_animations(new_ticks);
                         }
