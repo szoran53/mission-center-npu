@@ -34,7 +34,7 @@ use crate::application::{BASE_INTERVAL, INTERVAL_STEP};
 
 pub use client::{
     App, Battery, Client, Connection, Cpu, Disk, DiskKind, ErrorEjectFailed, Fan, Gpu, Memory,
-    MemoryDevice, Process, Service, SmartData,
+    MemoryDevice, Npu, Process, Service, SmartData,
 };
 use magpie_types::about::About;
 
@@ -126,6 +126,7 @@ pub struct Readings {
     pub disks_info: Vec<Disk>,
     pub network_connections: HashMap<String, Connection>,
     pub gpus: HashMap<String, Gpu>,
+    pub npu: Option<Npu>,
     pub fans: Vec<Fan>,
     pub batteries: Vec<Battery>,
 
@@ -147,6 +148,7 @@ impl Readings {
             disks_info: vec![],
             network_connections: Default::default(),
             gpus: HashMap::new(),
+            npu: None,
             fans: vec![],
             batteries: vec![],
 
@@ -875,6 +877,7 @@ impl MagpieClient {
             running_apps: magpie.apps(),
             disks_info: magpie.disks_info(),
             gpus: magpie.gpus(),
+            npu: magpie.npu(),
             cpu: magpie.cpu(),
             mem_info: magpie.memory(),
             mem_devices: magpie.memory_devices(),
@@ -902,6 +905,7 @@ impl MagpieClient {
                 batteries: std::mem::take(&mut readings.batteries),
                 network_connections: std::mem::take(&mut readings.network_connections),
                 gpus: std::mem::take(&mut readings.gpus),
+                npu: std::mem::take(&mut readings.npu),
                 running_apps: std::mem::take(&mut readings.running_apps),
                 running_processes: std::mem::take(&mut readings.running_processes),
                 network_stats_error: std::mem::take(&mut readings.network_stats_error),
@@ -973,6 +977,8 @@ impl MagpieClient {
                 "GPU info load took: {:?}",
                 timer.elapsed()
             );
+
+            readings.npu = magpie.npu();
 
             let timer = std::time::Instant::now();
             readings.cpu = magpie.cpu();
@@ -1060,6 +1066,7 @@ impl MagpieClient {
                     batteries: std::mem::take(&mut readings.batteries),
                     network_connections: std::mem::take(&mut readings.network_connections),
                     gpus: std::mem::take(&mut readings.gpus),
+                    npu: std::mem::take(&mut readings.npu),
                     running_apps: std::mem::take(&mut readings.running_apps),
                     running_processes: std::mem::take(&mut readings.running_processes),
                     network_stats_error: std::mem::take(&mut readings.network_stats_error),

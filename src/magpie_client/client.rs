@@ -48,6 +48,8 @@ pub use magpie_types::fan::Fan;
 use magpie_types::gpus::gpus_response;
 use magpie_types::gpus::gpus_response::GpuMap;
 pub use magpie_types::gpus::Gpu;
+use magpie_types::npu::npu_response;
+pub use magpie_types::npu::Npu;
 use magpie_types::ipc::{self, response};
 use magpie_types::memory::memory_response::MemoryInfo;
 use magpie_types::memory::{memory_request, memory_response};
@@ -81,6 +83,7 @@ type DisksResponse = disks_response::Response;
 type FansResponse = fans_response::Response;
 type BatteriesResponse = battery_response::Response;
 type GpusResponse = gpus_response::Response;
+type NpuResponse = npu_response::Response;
 type MemoryResponse = memory_response::Response;
 type ConnectionsResponse = connections_response::Response;
 type ProcessesResponse = processes_response::Response;
@@ -849,6 +852,21 @@ impl Client {
             GpusResponse::Gpus,
             GpusResponse::Error,
             |mut gpus: GpuMap| { std::mem::take(&mut gpus.gpus) }
+        )
+    }
+
+    pub fn npu(&self) -> Option<Npu> {
+        let mut socket = self.socket.borrow_mut();
+
+        let response = make_request(ipc::req_get_npu(), &mut socket, self.socket_addr.as_ref())
+            .and_then(|response| response.body);
+
+        parse_response!(
+            response,
+            ResponseBody::Npu,
+            NpuResponse::Npu,
+            NpuResponse::Error,
+            |npu: Npu| Some(npu)
         )
     }
 
