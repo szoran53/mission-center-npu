@@ -1933,6 +1933,7 @@ mod imp {
             let mut gpu_graphs = Vec::with_capacity(summary_graphs.len());
             let mut fan_graphs = Vec::with_capacity(summary_graphs.len());
             let mut battery_graphs = Vec::with_capacity(summary_graphs.len());
+            let mut npu_graph = None;
 
             for (graph, drag_source) in &summary_graphs {
                 graph.set_switch_active(true);
@@ -1951,6 +1952,8 @@ mod imp {
                     fan_graphs.push((graph.clone(), drag_source.clone()));
                 } else if graph.widget_name().starts_with("battery") {
                     battery_graphs.push((graph.clone(), drag_source.clone()));
+                } else if graph.widget_name().starts_with("npu") {
+                    npu_graph = Some((graph.clone(), drag_source.clone()));
                 }
             }
 
@@ -1975,6 +1978,7 @@ mod imp {
             add_graphs_to_sidebar(gpu_graphs, &sidebar, &mut index);
             add_graphs_to_sidebar(fan_graphs, &sidebar, &mut index);
             add_graphs_to_sidebar(battery_graphs, &sidebar, &mut index);
+            add_graph_to_sidebar(npu_graph, &sidebar, &mut index);
         }
     }
 
@@ -2193,7 +2197,11 @@ mod imp {
             );
             settings.connect_changed(Some("performance-show-gpus"), on_category_changed.clone());
             settings.connect_changed(Some("performance-show-fans"), on_category_changed.clone());
-            settings.connect_changed(Some("performance-show-batteries"), on_category_changed);
+            settings.connect_changed(
+                Some("performance-show-batteries"),
+                on_category_changed.clone(),
+            );
+            settings.connect_changed(Some("performance-show-npus"), on_category_changed);
 
             true
         }
