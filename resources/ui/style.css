@@ -59,6 +59,16 @@ window checkbutton.theme-selector radio:checked {
     background-color: transparent;
 }
 
+.npu-computing {
+    color: var(--accent-color, #33d17a);
+    font-weight: bold;
+}
+
+.npu-loaded {
+    color: var(--warning-color, #e5a50a);
+    font-weight: bold;
+}
+
 grid.layout-grid picture {
     padding-right: 0.5em;
 }
