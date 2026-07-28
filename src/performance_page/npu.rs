@@ -30,7 +30,7 @@ use crate::{application::INTERVAL_STEP, settings, to_short_human_readable_time};
 
 use crate::performance_page::widgets::{DatasetGroup, GraphWidget, ScalingSettings};
 
-use super::PageExt;
+use super::{NpuDetails, PageExt};
 
 const NPU_ACTIVE_THRESHOLD_HZ: f64 = 5.0;
 
@@ -47,17 +47,9 @@ mod imp {
         #[template_child]
         pub device_name: TemplateChild<gtk::Label>,
         #[template_child]
-        pub status_label: TemplateChild<gtk::Label>,
-        #[template_child]
         pub graph_activity: TemplateChild<GraphWidget>,
         #[template_child]
         pub graph_max_duration: TemplateChild<gtk::Label>,
-        #[template_child]
-        pub hwctx_count_label: TemplateChild<gtk::Label>,
-        #[template_child]
-        pub context_count_label: TemplateChild<gtk::Label>,
-        #[template_child]
-        pub partition_count_label: TemplateChild<gtk::Label>,
         #[template_child]
         pub context_menu: TemplateChild<gtk::Popover>,
 
@@ -67,6 +59,8 @@ mod imp {
         base_color: Cell<gtk::gdk::RGBA>,
         #[property(get, set)]
         summary_mode: Cell<bool>,
+        #[property(get = Self::infobar_content, type = Option<gtk::Widget>)]
+        pub infobar_content: NpuDetails,
 
         // ring buffer for windowed-peak Y scaling
         peak_ring: RefCell<[f64; 60]>,
@@ -78,17 +72,14 @@ mod imp {
             Self {
                 npu_id: Default::default(),
                 device_name: Default::default(),
-                status_label: Default::default(),
                 graph_activity: Default::default(),
                 graph_max_duration: Default::default(),
-                hwctx_count_label: Default::default(),
-                context_count_label: Default::default(),
-                partition_count_label: Default::default(),
                 context_menu: Default::default(),
 
                 name: RefCell::new(String::new()),
                 base_color: Cell::new(gtk::gdk::RGBA::new(0.0, 0.0, 0.0, 1.0)),
                 summary_mode: Cell::new(false),
+                infobar_content: NpuDetails::new(),
 
                 peak_ring: RefCell::new([0.0_f64; 60]),
                 peak_ring_pos: Cell::new(0),
@@ -106,6 +97,10 @@ mod imp {
                 return;
             }
             self.name.replace(name);
+        }
+
+        fn infobar_content(&self) -> Option<gtk::Widget> {
+            Some(self.infobar_content.clone().upcast())
         }
     }
 
@@ -164,10 +159,10 @@ mod imp {
     Partitions:      {}"#,
                 self.npu_id.label(),
                 self.device_name.label(),
-                self.status_label.label(),
-                self.hwctx_count_label.label(),
-                self.context_count_label.label(),
-                self.partition_count_label.label(),
+                self.infobar_content.status_label().label(),
+                self.infobar_content.hwctx_count_label().label(),
+                self.infobar_content.context_count_label().label(),
+                self.infobar_content.partition_count_label().label(),
             )
         }
     }
@@ -186,7 +181,28 @@ mod imp {
                 .as_ref()
                 .and_then(|i| i.device_id.clone())
                 .unwrap_or_default();
-            this.device_name.set_text(&device_id);
+            let device_name = npu
+                .info
+                .as_ref()
+                .and_then(|i| i.device_name.clone())
+                .unwrap_or_else(|| "Ryzen AI NPU".to_string());
+            this.device_name.set_text(&device_name);
+
+            this.infobar_content.pci_addr().set_text(&device_id);
+
+            let driver_version = npu
+                .info
+                .as_ref()
+                .and_then(|i| i.driver_version.clone())
+                .unwrap_or_default();
+            this.infobar_content.driver_version().set_text(&driver_version);
+
+            let xrt_version = npu
+                .info
+                .as_ref()
+                .and_then(|i| i.xrt_version.clone())
+                .unwrap_or_default();
+            this.infobar_content.xrt_version().set_text(&xrt_version);
 
             true
         }
@@ -218,7 +234,7 @@ mod imp {
                 .and_then(|d| d.partition_count)
                 .unwrap_or(0);
 
-            // Update status label and CSS classes
+            // Update status label
             let status = if irq_rate > NPU_ACTIVE_THRESHOLD_HZ {
                 "COMPUTING"
             } else if hwctx_count > 0 {
@@ -226,21 +242,28 @@ mod imp {
             } else {
                 "IDLE"
             };
-            this.status_label.set_text(status);
-            this.status_label.remove_css_class("npu-computing");
-            this.status_label.remove_css_class("npu-loaded");
+
+            this.infobar_content.status_label().set_text(status);
+            this.infobar_content.status_label().remove_css_class("npu-computing");
+            this.infobar_content.status_label().remove_css_class("npu-loaded");
             match status {
-                "COMPUTING" => this.status_label.add_css_class("npu-computing"),
-                "LOADED" => this.status_label.add_css_class("npu-loaded"),
+                "COMPUTING" => this.infobar_content.status_label().add_css_class("npu-computing"),
+                "LOADED" => this.infobar_content.status_label().add_css_class("npu-loaded"),
                 _ => {}
             }
 
-            // Update info labels
-            this.hwctx_count_label
+            // Update NpuDetails labels
+            this.infobar_content
+                .activity()
+                .set_text(&format!("{:.1} IRQ/s", irq_rate));
+            this.infobar_content
+                .hwctx_count_label()
                 .set_text(&format!("{}", hwctx_count));
-            this.context_count_label
+            this.infobar_content
+                .context_count_label()
                 .set_text(&format!("{}", context_count));
-            this.partition_count_label
+            this.infobar_content
+                .partition_count_label()
                 .set_text(&format!("{}", partition_count));
 
             // Update activity graph with windowed-peak Y scaling
@@ -339,11 +362,11 @@ glib::wrapper! {
 
 impl PageExt for PerformancePageNpu {
     fn infobar_collapsed(&self) {
-        // No separate infobar for NPU v1 — all info is inline
+        self.imp().infobar_content.set_collapsed(true);
     }
 
     fn infobar_uncollapsed(&self) {
-        // No separate infobar for NPU v1 — all info is inline
+        self.imp().infobar_content.set_collapsed(false);
     }
 }
 

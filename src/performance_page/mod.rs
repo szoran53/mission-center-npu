@@ -61,6 +61,7 @@ mod gpu_details;
 mod memory;
 mod network;
 mod npu;
+mod npu_details;
 mod summary_graph;
 mod widgets;
 
@@ -74,6 +75,7 @@ type GpuPage = gpu::PerformancePageGpu;
 type GpuDetails = gpu_details::GpuDetails;
 type FanPage = fan::PerformancePageFan;
 type NpuPage = npu::PerformancePageNpu;
+type NpuDetails = npu_details::NpuDetails;
 
 trait PageExt {
     fn infobar_collapsed(&self);

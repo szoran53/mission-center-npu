@@ -58,6 +58,7 @@
         <file preprocess="xml-stripblanks">ui/performance_page/fan_details.ui</file>
         <file preprocess="xml-stripblanks">ui/performance_page/gpu.ui</file>
         <file preprocess="xml-stripblanks">ui/performance_page/npu.ui</file>
+        <file preprocess="xml-stripblanks">ui/performance_page/npu_details.ui</file>
         <file preprocess="xml-stripblanks">ui/performance_page/gpu_details.ui</file>
         <file preprocess="xml-stripblanks">ui/performance_page/memory.ui</file>
         <file preprocess="xml-stripblanks">ui/performance_page/memory_details.ui</file>
